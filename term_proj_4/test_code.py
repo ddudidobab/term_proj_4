@@ -7,7 +7,8 @@ import math
 from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseWithCovarianceStamped
+
 
 class PathPlanner(Node):
     def __init__(self):
@@ -15,17 +16,24 @@ class PathPlanner(Node):
         self.client = self.create_client(GetMap, '/map_server/map')
         self.origin = None
         self.path_publisher = self.create_publisher(Path, '/path', 10)  # Initialize the path publisher
-    #     self.start = None
-    #     self.goal = None
-    #     self.start_subscriber = self.create_subscription(Point, '/initialpose', self.start_callback, 10)
-    #     self.goal_subscriber = self.create_subscription(Point, '/goal_pose', self.goal_callback, 10)
+        self.initial_pose_sub = self.create_subscription(PoseWithCovarianceStamped, '/initialpose',self.get_initial_pose, 10)
+        self.goal_pose_sub = self.create_subscription(PoseStamped, '/goal_pose',self.get_goal_pose, 10)
+        self.x_start = 0
+        self.y_start = 0
+        self.x_goal = 0
+        self.y_goal = 0
+        self.flag = False
         
-    # def start_callback(self, msg):
-    #     self.start = (msg.x, msg.y)
-                
-    # def goal_callback(self, msg):
-    #     self.goal = (msg.x, msg.y)
+    def get_initial_pose(self, msg):
+        self.x_start = msg.pose.pose.position.x
+        self.y_start = msg.pose.pose.position.y
+        self.planning()
         
+    def get_goal_pose(self, msg):
+        self.x_goal = msg.pose.position.x
+        self.y_goal = msg.pose.position.y
+        self.planning()
+    
     def send_request(self):
         while not self.client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting...')
@@ -33,7 +41,7 @@ class PathPlanner(Node):
         request = GetMap.Request()
         future = self.client.call_async(request)
         future.add_done_callback(self.handle_response)
-
+    
     def handle_response(self, future):
         try:
             response = future.result()
@@ -58,37 +66,36 @@ class PathPlanner(Node):
                 self.get_logger().info('Map height: %d' % (self.height))
                 self.get_logger().info('Map origin x: %d' % (self.origin_x))
                 self.get_logger().info('Map origin y: %d' % (self.origin_y))
-
-                x_start = -5.0
-                y_start = -5.0
-                x_goal = 2.0
-                y_goal = 4.0
-
-                x_start_grd, y_start_grd = self.from_world_to_grid(x_start, y_start)                
-                self.start_index = self.from_grid_to_index(x_start_grd, y_start_grd)
-                x_goal_grd, y_goal_grd = self.from_world_to_grid(x_goal, y_goal)                
-                self.goal_index = self.from_grid_to_index(x_goal_grd, y_goal_grd)
-
-                self.get_logger().info('start index: %d' % (self.start_index))
-                self.get_logger().info('goal index: %d' % (self.goal_index))
-
-                # calculate the shortes path using Dijkstra
-                path = []
-                path = self.dijkstra(self.start_index, self.goal_index, self.width, self.height, self.costmap, self.resolution, self.origin)
-
-                if not path:
-                    self.get_logger().warn("No path returned by Dijkstra's shortes path algorithm")
-                else:
-                    self.draw_path(path)
-
+                self.flag = True
             else:
                 self.get_logger().warn('Failed to receive map')
         except Exception as e:
             self.get_logger().error(f'Error: {str(e)}')
+            
+    def planning(self):
+        if(self.flag==True):
+            self.get_logger().info(f'Received initial_pose | x : {round(self.x_start, 2)}, y : {round(self.y_start, 2)}')
+            self.get_logger().info(f'Received goal_pose    | x : {round(self.x_goal, 2)}, y : {round(self.y_goal, 2)}')
 
+            x_start_grd, y_start_grd = self.from_world_to_grid(self.x_start, self.y_start)                
+            self.start_index = self.from_grid_to_index(x_start_grd, y_start_grd)
+            x_goal_grd, y_goal_grd = self.from_world_to_grid(self.x_goal, self.y_goal)                
+            self.goal_index = self.from_grid_to_index(x_goal_grd, y_goal_grd)
 
+            self.get_logger().info('start index: %d' % (self.start_index))
+            self.get_logger().info('goal index: %d' % (self.goal_index))
+            
+            # calculate the shortes path using Dijkstra
+            path = []
+            path = self.dijkstra(self.start_index, self.goal_index, self.width, self.height, self.costmap, self.resolution, self.origin)
+
+            if not path:
+                self.get_logger().warn("No path returned by Dijkstra's shortes path algorithm")
+            else:
+                self.draw_path(path)    
+        
     def dijkstra(self, start_index, goal_index, width, height, costmap, resolution, origin, grid_viz=None):
-    
+        
         # Initialize distances and visited array
         distances = [float('inf')] * (width * height)
         visited = [False] * (width * height)

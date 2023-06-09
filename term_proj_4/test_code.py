@@ -3,6 +3,7 @@ from rclpy.node import Node
 from nav_msgs.srv import GetMap
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import MarkerArray, Marker
 import math
 from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2, PointField
@@ -18,6 +19,8 @@ class PathPlanner(Node):
         self.path_publisher = self.create_publisher(Path, '/path', 10)  # Initialize the path publisher
         self.initial_pose_sub = self.create_subscription(PoseWithCovarianceStamped, '/initialpose',self.get_initial_pose, 10)
         self.goal_pose_sub = self.create_subscription(PoseStamped, '/goal_pose',self.get_goal_pose, 10)
+        self.open_node_pub = self.create_publisher(MarkerArray, '/open_node', 10)
+        self.close_node_pub = self.create_publisher(MarkerArray, '/close_node', 10)
         self.x_start = 0
         self.y_start = 0
         self.x_goal = 0
@@ -99,10 +102,10 @@ class PathPlanner(Node):
         # Initialize distances and visited array
         distances = [float('inf')] * (width * height)
         visited = [False] * (width * height)
-        
+        all = list(range(5477))
         # Set distance of start node to 0
         distances[start_index] = 0
-
+        index = []
         # Loop until all nodes are visited
         while True:
             # Find the node with the minimum distance
@@ -119,6 +122,11 @@ class PathPlanner(Node):
 
             # Mark the node as visited
             visited[min_index] = True
+            if visited[min_index] == True:
+                index.append(min_index)
+                
+                self.draw_close(index)
+                self.draw_open(all)
 
             # Find neighbors of the current node
             neighbors = self.find_neighbors(min_index, width, height, costmap, resolution)
@@ -163,6 +171,56 @@ class PathPlanner(Node):
 
         # Publish the path
         self.path_publisher.publish(path_msg)
+        
+    def draw_close(self,close):
+        arr_msg = MarkerArray()
+        
+        close_mk = Marker()
+        close_mk.header.frame_id = "map"
+        close_mk.id = 1
+        close_mk.type = Marker.POINTS
+        close_mk.action = Marker.ADD
+        close_mk.pose.orientation.w = 1.0
+        close_mk.scale.x = 0.1
+        close_mk.scale.y = 0.1
+        close_mk.color.r = 1.0
+        close_mk.color.g = 0.5
+        close_mk.color.a = 1.0
+        
+        for ixx in close:
+            ppoint = Point()
+            ppoint.x = (ixx % self.width) * self.resolution + self.origin_x
+            ppoint.y = (ixx // self.width) * self.resolution + self.origin_y
+            close_mk.points.append(ppoint)
+            
+        arr_msg.markers.append(close_mk)
+                
+        self.close_node_pub.publish(arr_msg)
+    
+    def draw_open(self, open):        
+        arr_msg = MarkerArray()
+        
+        open_mk = Marker()
+        open_mk.header.frame_id = "map"
+        open_mk.id = 1
+        open_mk.type = Marker.POINTS
+        open_mk.action = Marker.ADD
+        open_mk.pose.orientation.w = 1.0
+        open_mk.scale.x = 0.1
+        open_mk.scale.y = 0.1
+        open_mk.color.r = 1.0
+        open_mk.color.g = 1.0
+        open_mk.color.a = 0.3
+        
+        for ix in open:
+            point = Point()
+            point.x = (ix % self.width) * self.resolution + self.origin_x
+            point.y = (ix // self.width) * self.resolution + self.origin_y
+            open_mk.points.append(point)
+        
+        arr_msg.markers.append(open_mk)
+        
+        self.open_node_pub.publish(arr_msg)
 
     def find_neighbors(self, index, width, height, costmap, orthogonal_step_cost):
         """
@@ -233,6 +291,7 @@ class PathPlanner(Node):
         x_grd = int((x - self.origin_x) / self.resolution)
         y_grd = int((y - self.origin_y) / self.resolution)
         return x_grd, y_grd
+    
 
 def main(args=None):
     rclpy.init(args=args)

@@ -16,12 +16,12 @@ source install/setup.bash
 ```bash
 #terminal 1
 cd ~/proj_ws/src/term_proj_4
-source install/setup.zsh
+source install/setup.bash
 rviz2 -d rviz_cfg.rviz
 ```
 ```bash
 #terminal 2
 cd ~/proj_ws
-source install/setup.zsh
+source install/setup.bash
 ros2 launch term_proj_4 main.launch.py
 ```

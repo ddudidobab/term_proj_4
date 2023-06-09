@@ -22,7 +22,9 @@ class PathPlanner(Node):
         self.initial_pose_sub = self.create_subscription(PoseWithCovarianceStamped, '/initialpose',self.get_initial_pose, 10)
         self.goal_pose_sub = self.create_subscription(PoseStamped, '/goal_pose',self.get_goal_pose, 10)
         self.open_node_pub = self.create_publisher(MarkerArray, '/open_node', 10)
-        self.close_node_pub = self.create_publisher(MarkerArray, '/close_node', 10)
+        # self.close_node_pub = self.create_publisher(MarkerArray, '/close_node', 10)
+        # self.open_node_pub = self.create_publisher(PointCloud2, '/open_node', 10)
+        self.close_node_pub = self.create_publisher(PointCloud2, '/close_node', 10)
         self.goal_node_pub = self.create_publisher(Marker, '/goal_node', 10)
         self.x_start = 0
         self.y_start = 0
@@ -150,7 +152,10 @@ class PathPlanner(Node):
                 self.get_logger().warn("The current goal point is in an unreachable location. Please specify a new goal point.")
                 reachable = False
                 break
-         
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                executor.map(self.draw_close(closed))
+                executor.map(self.draw_open(opened))         
             
         # Build the path by backtracking from the goal node to the start node
         path = [goal_index]
@@ -170,12 +175,6 @@ class PathPlanner(Node):
                 path.append(min_index)
                 current_index = min_index
             path.reverse()
-            
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.map(self.draw_close(closed))
-            executor.map(self.draw_open(opened))
-            # self.draw_close(closed)
-            # self.draw_open(opened)
                    
         return path
 
@@ -215,30 +214,75 @@ class PathPlanner(Node):
         
         self.goal_node_pub.publish(msg)
           
+    # def draw_close(self,close):
+    #     arr_msg = MarkerArray()
+        
+    #     close_mk = Marker()
+    #     close_mk.header.frame_id = "map"
+    #     close_mk.id = 1
+    #     close_mk.type = Marker.POINTS
+    #     close_mk.action = Marker.ADD
+    #     close_mk.pose.orientation.w = 1.0
+    #     close_mk.scale.x = 0.1
+    #     close_mk.scale.y = 0.1
+    #     close_mk.color.r = 1.0
+    #     close_mk.color.g = 1.0
+    #     close_mk.color.a = 1.0
+        
+    #     for ix in close:
+    #         point = Point()
+    #         point.x = (ix % self.width) * self.resolution + self.origin_x
+    #         point.y = (ix // self.width) * self.resolution + self.origin_y
+    #         close_mk.points.append(point)
+            
+    #     arr_msg.markers.append(close_mk)
+                
+    #     self.close_node_pub.publish(arr_msg)
+        
+    # def draw_open(self, open):        
+    #     arr_msg = MarkerArray()
+        
+    #     open_mk = Marker()
+    #     open_mk.header.frame_id = "map"
+    #     open_mk.id = 1
+    #     open_mk.type = Marker.POINTS
+    #     open_mk.action = Marker.MODIFY
+    #     open_mk.pose.orientation.w = 1.0
+    #     open_mk.scale.x = 0.1
+    #     open_mk.scale.y = 0.1
+    #     open_mk.color.r = 1.0
+    #     open_mk.color.g = 0.5
+    #     open_mk.color.a = 1.0
+        
+    #     for ix in open:
+    #         point = Point()
+    #         point.x = (ix % self.width) * self.resolution + self.origin_x
+    #         point.y = (ix // self.width) * self.resolution + self.origin_y
+    #         open_mk.points.append(point)
+        
+    #     arr_msg.markers.append(open_mk)
+        
+    #     self.open_node_pub.publish(arr_msg)
+              
     def draw_close(self,close):
-        arr_msg = MarkerArray()
         
-        close_mk = Marker()
-        close_mk.header.frame_id = "map"
-        close_mk.id = 1
-        close_mk.type = Marker.POINTS
-        close_mk.action = Marker.ADD
-        close_mk.pose.orientation.w = 1.0
-        close_mk.scale.x = 0.1
-        close_mk.scale.y = 0.1
-        close_mk.color.r = 1.0
-        close_mk.color.g = 1.0
-        close_mk.color.a = 1.0
-        
+        header = Header()
+        header.frame_id = 'map'
+        fields = [
+            PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name='rgba', offset=12, datatype=PointField.UINT32, count=1),
+        ]   
+        points = []
         for ix in close:
             point = Point()
             point.x = (ix % self.width) * self.resolution + self.origin_x
             point.y = (ix // self.width) * self.resolution + self.origin_y
-            close_mk.points.append(point)
+            points.append(point)
+
+        cloud_msg = point_cloud2.create_cloud(header, fields, points)
             
-        arr_msg.markers.append(close_mk)
-                
-        self.close_node_pub.publish(arr_msg)
+        self.close_node_pub.publish(cloud_msg)
         
     def draw_open(self, open):        
         arr_msg = MarkerArray()

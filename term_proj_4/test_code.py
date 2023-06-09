@@ -21,6 +21,7 @@ class PathPlanner(Node):
         self.goal_pose_sub = self.create_subscription(PoseStamped, '/goal_pose',self.get_goal_pose, 10)
         self.open_node_pub = self.create_publisher(MarkerArray, '/open_node', 10)
         self.close_node_pub = self.create_publisher(MarkerArray, '/close_node', 10)
+        self.goal_node_pub = self.create_publisher(Marker, '/goal_node', 10)
         self.x_start = 0
         self.y_start = 0
         self.x_goal = 0
@@ -69,6 +70,14 @@ class PathPlanner(Node):
                 self.get_logger().info('Map height: %d' % (self.height))
                 self.get_logger().info('Map origin x: %d' % (self.origin_x))
                 self.get_logger().info('Map origin y: %d' % (self.origin_y))
+                open_nodes = []
+                        
+                for ix in range(self.width * self.height):
+                    if not self.is_obstacle(ix, self.costmap):
+                        open_nodes.append(ix)
+                
+                self.draw_open(open_nodes)
+            
                 self.flag = True
             else:
                 self.get_logger().warn('Failed to receive map')
@@ -84,6 +93,8 @@ class PathPlanner(Node):
             self.start_index = self.from_grid_to_index(x_start_grd, y_start_grd)
             x_goal_grd, y_goal_grd = self.from_world_to_grid(self.x_goal, self.y_goal)                
             self.goal_index = self.from_grid_to_index(x_goal_grd, y_goal_grd)
+            
+            self.draw_goal(self.goal_index)
 
             self.get_logger().info('start index: %d' % (self.start_index))
             self.get_logger().info('goal index: %d' % (self.goal_index))
@@ -95,6 +106,7 @@ class PathPlanner(Node):
             if not path:
                 self.get_logger().warn("No path returned by Dijkstra's shortes path algorithm")
             else:
+                
                 self.draw_path(path)    
         
     def dijkstra(self, start_index, goal_index, width, height, costmap, resolution, origin, grid_viz=None):
@@ -102,7 +114,7 @@ class PathPlanner(Node):
         # Initialize distances and visited array
         distances = [float('inf')] * (width * height)
         visited = [False] * (width * height)
-        all = list(range(5477))
+        reachable = True
         # Set distance of start node to 0
         distances[start_index] = 0
         index = []
@@ -126,8 +138,7 @@ class PathPlanner(Node):
                 index.append(min_index)
                 
                 self.draw_close(index)
-                self.draw_open(all)
-
+                
             # Find neighbors of the current node
             neighbors = self.find_neighbors(min_index, width, height, costmap, resolution)
 
@@ -137,24 +148,31 @@ class PathPlanner(Node):
                 step_cost = neighbor[1]
                 if not visited[neighbor_index] and distances[min_index] + step_cost < distances[neighbor_index]:
                     distances[neighbor_index] = distances[min_index] + step_cost
+            
+            if min_index == -1:
+                self.get_logger().warn("The current goal point is in an unreachable location. Please specify a new goal point.")
+                reachable = False
+                break
 
         # Build the path by backtracking from the goal node to the start node
         path = [goal_index]
-        current_index = goal_index
-        while current_index != start_index:
-            neighbors = self.find_neighbors(current_index, width, height, costmap, resolution)
-            min_dist = float('inf')
-            min_index = -1
-            for neighbor in neighbors:
-                neighbor_index = neighbor[0]
-                step_cost = neighbor[1]
-                if distances[neighbor_index] < min_dist:
-                    min_dist = distances[neighbor_index]
-                    min_index = neighbor_index
-            path.append(min_index)
-            current_index = min_index
-        path.reverse()
-
+        
+        if reachable == True:
+            current_index = goal_index
+            while current_index != start_index:
+                neighbors = self.find_neighbors(current_index, width, height, costmap, resolution)
+                min_dist = float('inf')
+                min_index = -1
+                for neighbor in neighbors:
+                    neighbor_index = neighbor[0]
+                    step_cost = neighbor[1]
+                    if distances[neighbor_index] < min_dist:
+                        min_dist = distances[neighbor_index]
+                        min_index = neighbor_index
+                path.append(min_index)
+                current_index = min_index
+            path.reverse()
+                   
         return path
 
     def draw_path(self, path):
@@ -172,6 +190,27 @@ class PathPlanner(Node):
         # Publish the path
         self.path_publisher.publish(path_msg)
         
+    def draw_goal(self, goal):
+        point = Point()
+        point.x = (goal % self.width) * self.resolution + self.origin_x
+        point.y = (goal // self.width) * self.resolution + self.origin_y
+        
+        msg = Marker()
+        msg.header.frame_id = "map"
+        msg.id = 1
+        msg.type = Marker.POINTS
+        msg.action = Marker.MODIFY
+        msg.pose.orientation.w = 1.0
+        msg.points.append(point)
+        msg.scale.x = 0.2
+        msg.scale.y = 0.2
+        msg.color.r = 0.5
+        msg.color.b = 1.0
+        msg.color.a = 1.0
+        
+        self.goal_node_pub.publish(msg)
+    
+        
     def draw_close(self,close):
         arr_msg = MarkerArray()
         
@@ -184,14 +223,14 @@ class PathPlanner(Node):
         close_mk.scale.x = 0.1
         close_mk.scale.y = 0.1
         close_mk.color.r = 1.0
-        close_mk.color.g = 0.5
+        close_mk.color.g = 1.0
         close_mk.color.a = 1.0
         
-        for ixx in close:
-            ppoint = Point()
-            ppoint.x = (ixx % self.width) * self.resolution + self.origin_x
-            ppoint.y = (ixx // self.width) * self.resolution + self.origin_y
-            close_mk.points.append(ppoint)
+        for ix in close:
+            point = Point()
+            point.x = (ix % self.width) * self.resolution + self.origin_x
+            point.y = (ix // self.width) * self.resolution + self.origin_y
+            close_mk.points.append(point)
             
         arr_msg.markers.append(close_mk)
                 
@@ -209,8 +248,8 @@ class PathPlanner(Node):
         open_mk.scale.x = 0.1
         open_mk.scale.y = 0.1
         open_mk.color.r = 1.0
-        open_mk.color.g = 1.0
-        open_mk.color.a = 0.3
+        open_mk.color.g = 0.5
+        open_mk.color.a = 1.0
         
         for ix in open:
             point = Point()
@@ -221,7 +260,13 @@ class PathPlanner(Node):
         arr_msg.markers.append(open_mk)
         
         self.open_node_pub.publish(arr_msg)
-
+    
+    def is_obstacle(self, index, costmap):
+        if costmap[index] != 0:
+            return True
+        else:
+            return False
+        
     def find_neighbors(self, index, width, height, costmap, orthogonal_step_cost):
         """
         Identifies neighbor nodes inspecting the 8 adjacent neighbors
